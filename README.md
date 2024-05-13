@@ -40,6 +40,7 @@ Example: `docker run -v /home/myuser/myTestFiles/:/mnt/data foo /mnt/data/test_f
 Assuming the example we connect folder /home/myuser/myTestFiles/ to our image, named "foo", and giving it as argument path inside volume with filename test_file  
 ______
 ### Build from source
+#### Without Makefile
 * Ensure that Go is installed on your machine and it`s version is equal or higther than 1.22.2
 ```
 go version
@@ -52,3 +53,21 @@ git clone https://github.com/Razzle131/ComputerClub.git
 ```
 go run main.go test_file.txt
 ```
+______
+#### Using Makefile
+* Ensure that Go is installed on your machine and it`s version is equal or higther than 1.22.2
+```
+go version
+```
+* Clone repo
+```
+git clone https://github.com/Razzle131/ComputerClub.git
+```
+* Now you can use commands `make <command>`
+  * `make build` - builds source code into binary in binaries folder with the name set on bin by default
+  * `make build name=foo` - builds source code into binary with name setted foo
+  * `make run` - does "go run main.go"
+  * `make test` - runs all unit tests
+  * `docker-build` - builds docker image with name helloworldclub by default
+  * `docker-build image=foo` - builds docker image with name "foo"
+  * `make docker-run` - runs compiled image, sets image=helloworldclub and file=test_file.txt by default, you can change them adding after "...run" tags image=<yourimagename> and file=<yourtestfile>
