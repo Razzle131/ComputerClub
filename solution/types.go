@@ -1,9 +1,9 @@
 package Solution
 
 import (
+	"fmt"
 	"math"
 	"slices"
-	"strings"
 	"time"
 )
 
@@ -12,8 +12,12 @@ type client struct {
 	startedTime time.Time // time when the client starts his session
 }
 
-func (c client) getPayment(endSessionTime time.Time) int {
-	return int(math.Ceil(endSessionTime.Sub(c.startedTime).Hours())) * price
+func (c client) getPayment(endSessionTime time.Time, price int) int {
+	var durInHours float64 = endSessionTime.Sub(c.startedTime).Hours()
+	if durInHours < 0 {
+		return 0
+	}
+	return int(math.Ceil(durInHours)) * price
 }
 
 type table struct {
@@ -23,9 +27,13 @@ type table struct {
 }
 
 // accumulates table time and income and resets user of the table
-func (t *table) endClientSession(endSessionTime time.Time) {
-	t.tableTotalTime += endSessionTime.Sub(t.tableClient.startedTime)
-	t.tableTotalIncome += t.tableClient.getPayment(endSessionTime)
+func (t *table) endClientSession(endSessionTime time.Time, price int) {
+	var dur time.Duration = endSessionTime.Sub(t.tableClient.startedTime)
+	if dur > 0 {
+		t.tableTotalTime += dur
+	}
+
+	t.tableTotalIncome += t.tableClient.getPayment(endSessionTime, price)
 	t.tableClient = client{}
 }
 
@@ -61,20 +69,35 @@ func (c club) findTableByClient(clientName string) int {
 	return -1
 }
 
-// removes client name from clients slice
+// removes client name from all clients slice
 func (c *club) deleteClient(clientName string) {
 	if ind := slices.Index(c.cameClients, clientName); ind >= 0 {
 		c.cameClients = slices.Delete(c.cameClients, ind, ind+1)
 	}
 }
 
-// checks if there are events before that in standart would be later than checked event, this makes this happen next day
-func checkIfThisIsNewDay(i int, input []string, curEventTime time.Time) bool {
-	for j := i; j > 2; j-- {
-		prevEventTime, err := time.Parse(timeLayout, strings.Split(input[j], " ")[0])
-		if err == nil && prevEventTime.Compare(curEventTime) > 0 {
-			return true
+// inits closure proccess in club, endTimeStr needs if we have endTime input = "24:00"
+func (c *club) close(endTimeStr string, endTime time.Time, price int) {
+	slices.Sort(c.cameClients)
+	for _, client := range c.cameClients {
+		fmt.Println(endTimeStr, 11, client)
+		if leavedClientTable := c.findTableByClient(client); leavedClientTable >= 0 {
+			leavedTable := &c.clubClients[leavedClientTable]
+			leavedTable.endClientSession(endTime, price)
 		}
 	}
-	return false
+	c.cameClients = []string{}
+	c.clubQueue = queue{}
+}
+
+// checks if previous event was in new day or its time is bigger than new event, so modifies current date by delta days
+func shiftDate(prevEventDate time.Time, curEventDate *time.Time) {
+	if prevEventDate != (time.Time{}) {
+		if delta := prevEventDate.Day() - curEventDate.Day(); delta > 0 {
+			*curEventDate = curEventDate.AddDate(0, 0, delta)
+		}
+		if prevEventDate.Compare(*curEventDate) > 0 {
+			*curEventDate = curEventDate.AddDate(0, 0, 1)
+		}
+	}
 }

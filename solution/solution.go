@@ -1,6 +1,7 @@
 package Solution
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -11,42 +12,55 @@ import (
 
 const timeLayout string = "15:04"
 
-var price int = 0
-
 func Solve() {
-	inputData := readFile()
+	inputData, err := readFile(os.Args)
 
-	if inputData != nil {
-		processFile(inputData)
+	if err != nil {
+		fmt.Println(err.Error())
+		return
 	}
+
+	processFile(inputData)
 }
 
-func readFile() []string {
-	if len(os.Args) < 2 {
-		fmt.Println("Missing parameter, provide file name")
-		return nil
+var errMissingParam error = errors.New("missing parameter, provide file name")
+var errReadFile error = errors.New("cant read given file")
+
+func readFile(args []string) ([]string, error) {
+	if len(args) < 2 {
+		return nil, errMissingParam
 	}
 
-	data, err := os.ReadFile(os.Args[1])
+	data, err := os.ReadFile(args[1])
 	if err != nil {
-		fmt.Println("Can't read file:", os.Args[1])
-		return nil
+		return nil, errReadFile
 	}
 
-	return strings.Split(string(data), "\n")
+	return strings.Split(string(data), "\n"), nil
 }
 
 func printError(errTime string, errText string) {
 	fmt.Println(errTime, 13, errText)
 }
 
-func getInitData(input []string) (int, time.Time, time.Time) {
-	tableCount, err := strconv.Atoi(input[0])
-	if err != nil {
-		panic("Error with parsing number of tables, recheck it")
+func getInitData(initData []string) (tableNum int, startTime time.Time, endTime time.Time, priceForHour int, err error) {
+	if len(initData) < 3 {
+		return 0, time.Time{}, time.Time{}, 0, errors.New("not enought initial data in file")
 	}
 
-	workTime := strings.Split(input[1], " ")
+	tableCount, err := strconv.Atoi(initData[0])
+	if err != nil {
+		return 0, time.Time{}, time.Time{}, 0, errors.New("error with parsing number of tables (first line in file), recheck it")
+	}
+	if tableCount <= 0 {
+		return 0, time.Time{}, time.Time{}, 0, errors.New("number of tables must be positive (first line in file)")
+	}
+
+	workTime := strings.Split(initData[1], " ")
+	if len(workTime) != 2 {
+		return 0, time.Time{}, time.Time{}, 0, errors.New("error with parsing time working hours, is it divided by space?")
+	}
+
 	if workTime[0] == "24:00" {
 		workTime[0] = "00:00"
 	}
@@ -56,11 +70,11 @@ func getInitData(input []string) (int, time.Time, time.Time) {
 
 	start, err := time.Parse(timeLayout, workTime[0])
 	if err != nil {
-		panic("Error with parsing club start time, recheck it")
+		return 0, time.Time{}, time.Time{}, 0, errors.New("error with parsing club start time (second line in file, first value), recheck it")
 	}
 	end, err := time.Parse(timeLayout, workTime[1])
 	if err != nil {
-		panic("Error with parsing club end time, recheck it")
+		return 0, time.Time{}, time.Time{}, 0, errors.New("error with parsing club end time (second line in file, second value), recheck it")
 	}
 
 	// if club closes before its start time it means that it is new day for closure definitely
@@ -68,61 +82,82 @@ func getInitData(input []string) (int, time.Time, time.Time) {
 		end = end.AddDate(0, 0, 1)
 	}
 
-	price, err = strconv.Atoi(input[2])
+	price, err := strconv.Atoi(initData[2])
 	if err != nil {
-		panic("Error with parsing price, recheck it")
+		return 0, time.Time{}, time.Time{}, 0, errors.New("error with parsing price (third line in file), recheck it")
+	}
+	if price < 0 {
+		return 0, time.Time{}, time.Time{}, 0, errors.New("price must be non-negative (third line in file)")
 	}
 
-	return tableCount, start, end
+	return tableCount, start, end, price, nil
 }
 
 func processFile(input []string) {
-	tableCount, start, end := getInitData(input)
+	tableCount, start, end, price, err := getInitData(input[:3])
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
 
 	var computerClub club = club{make([]table, tableCount), []string{}, []string{}}
 
 	var fileStr []string
-	var eventTime string
+	var curEventTime time.Time
+	var prvEventTime time.Time
+	var eventTimeStr string
 	var eventId string
 	var eventClient string
 
-	fmt.Println(start.Format(timeLayout))
+	fmt.Println(strings.Split(input[1], " ")[0])
 	for i := 3; i < len(input); i++ {
 		fileStr = strings.Split(input[i], " ")
+		if len(fileStr) < 3 {
+			fmt.Printf("bad data on file line %v\n", i+1)
+			continue
+		}
 
-		eventTime = fileStr[0]
+		curEventTime, err = time.Parse(timeLayout, fileStr[0])
+		if err != nil {
+			for j := 0; j < len(fileStr); j++ {
+				fmt.Printf("%v ", fileStr[j])
+			}
+			fmt.Printf("\nError with parsing time on file line %v, moving to next event...\n", i+1)
+			continue
+		}
+
+		eventTimeStr = fileStr[0]
 		eventId = fileStr[1]
 		eventClient = fileStr[2]
+
+		// if this is not the first event, compares previous event time to current event time and adds shift in days if it is needed
+		shiftDate(prvEventTime, &curEventTime)
+
+		// if club should be closed before current event, we close it now
+		if curEventTime.Compare(end) > 0 {
+			computerClub.close(strings.Split(input[1], " ")[1], end, price)
+		}
+
 		switch eventId {
 		case "1":
-			fmt.Println(eventTime, eventId, eventClient)
+			fmt.Println(eventTimeStr, eventId, eventClient)
 
 			if slices.Contains(computerClub.cameClients, eventClient) {
-				printError(eventTime, "YouShallNotPass")
+				printError(eventTimeStr, "YouShallNotPass")
 				break
 			}
 
-			curEventTime, err := time.Parse(timeLayout, eventTime)
-			if err != nil {
-				fmt.Println("Error with parsing last event time, cant check if the club is open, moving to next event...")
-				continue
-			}
-
-			if checkIfThisIsNewDay(i, input, curEventTime) {
-				curEventTime = curEventTime.AddDate(0, 0, 1)
-			}
-
 			if start.Compare(curEventTime) > 0 || curEventTime.Compare(end) > 0 {
-				printError(eventTime, "NotOpenYet")
+				printError(eventTimeStr, "NotOpenYet")
 				break
 			}
 
 			computerClub.cameClients = append(computerClub.cameClients, eventClient)
 		case "2":
-			fmt.Println(eventTime, eventId, eventClient, fileStr[3])
+			fmt.Println(eventTimeStr, eventId, eventClient, fileStr[3])
 
 			if !slices.Contains(computerClub.cameClients, eventClient) {
-				printError(eventTime, "ClientUnknown")
+				printError(eventTimeStr, "ClientUnknown")
 				break
 			}
 
@@ -133,41 +168,25 @@ func processFile(input []string) {
 			}
 
 			if computerClub.clubClients[eventTable-1].tableClient.clientName != "" {
-				printError(eventTime, "PlaceIsBusy")
-				break
-			}
-
-			curEventTime, err := time.Parse(timeLayout, eventTime)
-			if err != nil {
-				fmt.Println("Error with parsing last event time, cant start client`s session, moving to next event...")
-				continue
-			}
-
-			// if it is new day we add 1 day to the event date
-			if checkIfThisIsNewDay(i, input, curEventTime) {
-				curEventTime = curEventTime.AddDate(0, 0, 1)
-			}
-
-			// skipping calculation of the session, if it is after end of the club work day
-			if start.Compare(curEventTime) > 0 || curEventTime.Compare(end) > 0 {
+				printError(eventTimeStr, "PlaceIsBusy")
 				break
 			}
 
 			// end previous session (if exists) and start new
 			if leavedClientTable := computerClub.findTableByClient(eventClient); leavedClientTable >= 0 {
-				computerClub.clubClients[leavedClientTable].endClientSession(curEventTime)
+				computerClub.clubClients[leavedClientTable].endClientSession(curEventTime, price)
 			}
 			computerClub.clubClients[eventTable-1].tableClient = client{eventClient, curEventTime}
 		case "3":
-			fmt.Println(eventTime, eventId, eventClient)
+			fmt.Println(eventTimeStr, eventId, eventClient)
 
 			if computerClub.findTableByClient("") >= 0 {
-				printError(eventTime, "ICanWaitNoLonger!")
+				printError(eventTimeStr, "ICanWaitNoLonger!")
 				break
 			}
 
 			if len(computerClub.clubQueue) > tableCount {
-				fmt.Println(eventTime, 11, eventClient)
+				fmt.Println(eventTimeStr, 11, eventClient)
 				computerClub.deleteClient(eventClient)
 				break
 			}
@@ -178,46 +197,36 @@ func processFile(input []string) {
 			}
 			computerClub.clubQueue.push(eventClient)
 		case "4":
-			fmt.Println(eventTime, eventId, eventClient)
+			fmt.Println(eventTimeStr, eventId, eventClient)
 
 			if !slices.Contains(computerClub.cameClients, eventClient) {
-				printError(eventTime, "ClientUnknown")
+				printError(eventTimeStr, "ClientUnknown")
 				break
 			}
 
 			computerClub.deleteClient(eventClient)
 
 			if leavedClientTable := computerClub.findTableByClient(eventClient); leavedClientTable >= 0 {
-				curEventTime, err := time.Parse(timeLayout, eventTime)
-				if err != nil {
-					fmt.Println("Error with parsing last event time, cant start new client session and update table income, moving to next event...")
-					continue
-				}
-
 				leavedTable := &computerClub.clubClients[leavedClientTable]
-				leavedTable.endClientSession(curEventTime)
+				leavedTable.endClientSession(curEventTime, price)
 				if len(computerClub.clubQueue) > 0 {
 					newClientName := computerClub.clubQueue.pop()
-					fmt.Println(eventTime, 12, newClientName, leavedClientTable+1)
+					fmt.Println(eventTimeStr, 12, newClientName, leavedClientTable+1)
 
 					leavedTable.tableClient = client{newClientName, curEventTime}
 				}
 			}
 		}
+
+		prvEventTime = curEventTime
 	}
 
 	// end all sessions and print income by tables
-	slices.Sort(computerClub.cameClients)
-	for _, client := range computerClub.cameClients {
-		fmt.Println(end.Format(timeLayout), 11, client)
-		if leavedClientTable := computerClub.findTableByClient(client); leavedClientTable >= 0 {
-			leavedTable := &computerClub.clubClients[leavedClientTable]
-			leavedTable.endClientSession(end)
-		}
-	}
+	computerClub.close(strings.Split(input[1], " ")[1], end, price)
 
-	fmt.Println(end.Format(timeLayout))
+	fmt.Println(strings.Split(input[1], " ")[1])
 
+	// print tables income
 	for id, table := range computerClub.clubClients {
 		fmt.Println(id+1, table.tableTotalIncome, fmt.Sprintf("%02d:%02d", int(table.tableTotalTime.Hours()), int(table.tableTotalTime.Minutes())%60))
 	}
