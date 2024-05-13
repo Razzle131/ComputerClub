@@ -1,54 +1,69 @@
 package Solution
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Razzle131/ComputerClub/solution/client"
+	"github.com/Razzle131/ComputerClub/solution/club"
+	"github.com/Razzle131/ComputerClub/solution/event"
 )
 
 const timeLayout string = "15:04"
 
-func Solve() {
-	inputData, err := readFile(os.Args)
+const (
+	clientComeEvent       string = "1"
+	clientClaimTableEvent string = "2"
+	clientWaitsEvent      string = "3"
+	clientGoneEvent       string = "4"
+)
 
+func Solve() {
+	inputFile, err := openFile(os.Args)
 	if err != nil {
 		fmt.Println(err.Error())
 		return
 	}
 
-	processFile(inputData)
+	processFile(inputFile)
 }
 
 var errMissingParam error = errors.New("missing parameter, provide file name")
-var errReadFile error = errors.New("cant read given file")
+var errOpenFile error = errors.New("cant open given file")
 
-func readFile(args []string) ([]string, error) {
+func openFile(args []string) (*os.File, error) {
 	if len(args) < 2 {
 		return nil, errMissingParam
 	}
 
-	data, err := os.ReadFile(args[1])
+	file, err := os.Open(args[1])
 	if err != nil {
-		return nil, errReadFile
+		return nil, errOpenFile
 	}
 
-	return strings.Split(string(data), "\n"), nil
+	return file, nil
 }
 
-func printError(errTime string, errText string) {
-	fmt.Println(errTime, 13, errText)
-}
-
-func getInitData(initData []string) (tableNum int, startTime time.Time, endTime time.Time, priceForHour int, err error) {
-	if len(initData) < 3 {
-		return 0, time.Time{}, time.Time{}, 0, errors.New("not enought initial data in file")
+// checks if previous event was in new day or its time is bigger than new event, so modifies current date by delta days
+func shiftDate(prevEventDate time.Time, curEventDate *time.Time) {
+	if prevEventDate != (time.Time{}) {
+		if delta := prevEventDate.Day() - curEventDate.Day(); delta > 0 {
+			*curEventDate = curEventDate.AddDate(0, 0, delta)
+		}
+		if prevEventDate.Compare(*curEventDate) > 0 {
+			*curEventDate = curEventDate.AddDate(0, 0, 1)
+		}
 	}
+}
 
-	tableCount, err := strconv.Atoi(initData[0])
+func getInitData(scanner *bufio.Scanner) (tableNum int, startTime time.Time, endTime time.Time, priceForHour int, err error) {
+	scanner.Scan()
+	tableCount, err := strconv.Atoi(scanner.Text())
 	if err != nil {
 		return 0, time.Time{}, time.Time{}, 0, errors.New("error with parsing number of tables (first line in file), recheck it")
 	}
@@ -56,8 +71,9 @@ func getInitData(initData []string) (tableNum int, startTime time.Time, endTime 
 		return 0, time.Time{}, time.Time{}, 0, errors.New("number of tables must be positive (first line in file)")
 	}
 
-	workTime := strings.Split(initData[1], " ")
-	if len(workTime) != 2 {
+	scanner.Scan()
+	workTime := strings.Split(scanner.Text(), " ")
+	if len(workTime) < 2 {
 		return 0, time.Time{}, time.Time{}, 0, errors.New("error with parsing time working hours, is it divided by space?")
 	}
 
@@ -82,7 +98,8 @@ func getInitData(initData []string) (tableNum int, startTime time.Time, endTime 
 		end = end.AddDate(0, 0, 1)
 	}
 
-	price, err := strconv.Atoi(initData[2])
+	scanner.Scan()
+	price, err := strconv.Atoi(scanner.Text())
 	if err != nil {
 		return 0, time.Time{}, time.Time{}, 0, errors.New("error with parsing price (third line in file), recheck it")
 	}
@@ -93,27 +110,31 @@ func getInitData(initData []string) (tableNum int, startTime time.Time, endTime 
 	return tableCount, start, end, price, nil
 }
 
-func processFile(input []string) {
-	tableCount, start, end, price, err := getInitData(input[:3])
+func processFile(inputFile *os.File) {
+	scanner := bufio.NewScanner(inputFile)
+
+	tableCount, start, end, price, err := getInitData(scanner)
 	if err != nil {
 		fmt.Println(err.Error())
 		return
 	}
 
-	var computerClub club = club{make([]table, tableCount), []string{}, []string{}}
+	var computerClub club.Club = club.New(tableCount)
 
 	var fileStr []string
 	var curEventTime time.Time
 	var prvEventTime time.Time
-	var eventTimeStr string
-	var eventId string
-	var eventClient string
+	var fileEvent event.Event
 
-	fmt.Println(strings.Split(input[1], " ")[0])
-	for i := 3; i < len(input); i++ {
-		fileStr = strings.Split(input[i], " ")
+	fmt.Println(start.Format(timeLayout))
+	for scanner.Scan() {
+		fmt.Println(scanner.Text())
+		fileStr = strings.Split(scanner.Text(), " ")
 		if len(fileStr) < 3 {
-			fmt.Printf("bad data on file line %v\n", i+1)
+			for j := 0; j < len(fileStr); j++ {
+				fmt.Printf("%v ", fileStr[j])
+			}
+			fmt.Println("\nnot enought data on last event line, moving to next event...")
 			continue
 		}
 
@@ -122,112 +143,95 @@ func processFile(input []string) {
 			for j := 0; j < len(fileStr); j++ {
 				fmt.Printf("%v ", fileStr[j])
 			}
-			fmt.Printf("\nError with parsing time on file line %v, moving to next event...\n", i+1)
+			fmt.Printf("\nError with parsing time on last event line, moving to next event...\n")
 			continue
 		}
 
-		eventTimeStr = fileStr[0]
-		eventId = fileStr[1]
-		eventClient = fileStr[2]
+		fileEvent = event.Event{EventTime: fileStr[0], EventId: fileStr[1], EventClient: fileStr[2], EventTable: "", EventErrMessage: ""}
 
 		// if this is not the first event, compares previous event time to current event time and adds shift in days if it is needed
 		shiftDate(prvEventTime, &curEventTime)
 
 		// if club should be closed before current event, we close it now
 		if curEventTime.Compare(end) > 0 {
-			computerClub.close(strings.Split(input[1], " ")[1], end, price)
+			computerClub.Close(end, price, timeLayout)
 		}
 
-		switch eventId {
-		case "1":
-			fmt.Println(eventTimeStr, eventId, eventClient)
-
-			if slices.Contains(computerClub.cameClients, eventClient) {
-				printError(eventTimeStr, "YouShallNotPass")
-				break
-			}
-
+		switch fileEvent.EventId {
+		case clientComeEvent:
 			if start.Compare(curEventTime) > 0 || curEventTime.Compare(end) > 0 {
-				printError(eventTimeStr, "NotOpenYet")
+				fileEvent.EventErrMessage = "NotOpenYet"
+				fileEvent.PrintEvent()
 				break
 			}
 
-			computerClub.cameClients = append(computerClub.cameClients, eventClient)
-		case "2":
-			fmt.Println(eventTimeStr, eventId, eventClient, fileStr[3])
+			if computerClub.IsInClub(fileEvent.EventClient) {
+				fileEvent.EventErrMessage = "YouShallNotPass"
+				fileEvent.PrintEvent()
+				break
+			}
 
-			if !slices.Contains(computerClub.cameClients, eventClient) {
-				printError(eventTimeStr, "ClientUnknown")
+			computerClub.AddClient(fileEvent.EventClient)
+		case clientClaimTableEvent:
+			if !computerClub.IsInClub(fileEvent.EventClient) {
+				fileEvent.EventErrMessage = "ClientUnknown"
+				fileEvent.PrintEvent()
 				break
 			}
 
 			eventTable, err := strconv.Atoi(fileStr[3])
+			fileEvent.EventTable = fileStr[3]
 			if err != nil {
 				fmt.Println("Error with parsing last event table id, cant check is it busy or not, moving to next event...")
 				continue
 			}
+			if eventTable > tableCount {
+				fmt.Println("last event`s table id is bigger than table count, cant check data, moving to next event...")
+				continue
+			}
 
-			if computerClub.clubClients[eventTable-1].tableClient.clientName != "" {
-				printError(eventTimeStr, "PlaceIsBusy")
+			if computerClub.IsTableBusy(eventTable - 1) {
+				fileEvent.EventErrMessage = "PlaceIsBusy"
+				fileEvent.PrintEvent()
 				break
 			}
 
-			// end previous session (if exists) and start new
-			if leavedClientTable := computerClub.findTableByClient(eventClient); leavedClientTable >= 0 {
-				computerClub.clubClients[leavedClientTable].endClientSession(curEventTime, price)
-			}
-			computerClub.clubClients[eventTable-1].tableClient = client{eventClient, curEventTime}
-		case "3":
-			fmt.Println(eventTimeStr, eventId, eventClient)
-
-			if computerClub.findTableByClient("") >= 0 {
-				printError(eventTimeStr, "ICanWaitNoLonger!")
+			computerClub.StartNewSession(client.Client{ClientName: fileEvent.EventClient, StartedTime: curEventTime}, price, eventTable-1)
+		case clientWaitsEvent:
+			if computerClub.QueueIsTooBig(tableCount) {
+				computerClub.DeleteClient(fileEvent.EventClient)
+				fileEvent.EventId = "11"
+				fileEvent.PrintEvent()
 				break
 			}
 
-			if len(computerClub.clubQueue) > tableCount {
-				fmt.Println(eventTimeStr, 11, eventClient)
-				computerClub.deleteClient(eventClient)
+			if computerClub.FindTableByClient("") >= 0 {
+				fileEvent.EventErrMessage = "ICanWaitNoLonger!"
+				fileEvent.PrintEvent()
 				break
 			}
 
-			// if client doesnt appears in common list, we will add him
-			if !slices.Contains(computerClub.cameClients, eventClient) {
-				computerClub.cameClients = append(computerClub.cameClients, eventClient)
-			}
-			computerClub.clubQueue.push(eventClient)
-		case "4":
-			fmt.Println(eventTimeStr, eventId, eventClient)
-
-			if !slices.Contains(computerClub.cameClients, eventClient) {
-				printError(eventTimeStr, "ClientUnknown")
+			computerClub.AddClientToQueue(fileEvent.EventClient)
+		case clientGoneEvent:
+			if !computerClub.IsInClub(fileEvent.EventClient) {
+				fileEvent.EventErrMessage = "ClientUnknown"
+				fileEvent.PrintEvent()
 				break
 			}
 
-			computerClub.deleteClient(eventClient)
-
-			if leavedClientTable := computerClub.findTableByClient(eventClient); leavedClientTable >= 0 {
-				leavedTable := &computerClub.clubClients[leavedClientTable]
-				leavedTable.endClientSession(curEventTime, price)
-				if len(computerClub.clubQueue) > 0 {
-					newClientName := computerClub.clubQueue.pop()
-					fmt.Println(eventTimeStr, 12, newClientName, leavedClientTable+1)
-
-					leavedTable.tableClient = client{newClientName, curEventTime}
-				}
-			}
+			computerClub.EndClientSession(client.Client{ClientName: fileEvent.EventClient, StartedTime: curEventTime}, price)
 		}
 
 		prvEventTime = curEventTime
 	}
 
 	// end all sessions and print income by tables
-	computerClub.close(strings.Split(input[1], " ")[1], end, price)
+	computerClub.Close(end, price, timeLayout)
 
-	fmt.Println(strings.Split(input[1], " ")[1])
+	fmt.Println(end.Format(timeLayout))
 
 	// print tables income
-	for id, table := range computerClub.clubClients {
-		fmt.Println(id+1, table.tableTotalIncome, fmt.Sprintf("%02d:%02d", int(table.tableTotalTime.Hours()), int(table.tableTotalTime.Minutes())%60))
+	for _, result := range computerClub.GetIncome() {
+		fmt.Println(result)
 	}
 }
