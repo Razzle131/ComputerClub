@@ -17,6 +17,7 @@ func (e Event) PrintEvent() {
 	if e.EventErrMessage != "" {
 		e.EventId = "13"
 		e.EventClient = ""
+		e.EventTable = ""
 	}
 	eventMessage := fmt.Sprintf("%v %v %v %v %v", e.EventTime, e.EventId, e.EventClient, e.EventTable, e.EventErrMessage)
 
