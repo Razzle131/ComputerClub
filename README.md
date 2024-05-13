@@ -38,3 +38,17 @@ docker run -v /path/to/test/files/folder:/mnt/data IMAGE-NAME /mnt/data/testFile
 ```
 Example: `docker run -v /home/myuser/myTestFiles/:/mnt/data foo /mnt/data/test_file`  
 Assuming the example we connect folder /home/myuser/myTestFiles/ to our image, named "foo", and giving it as argument path inside volume with filename test_file  
+______
+### Build from source
+* Ensure that Go is installed on your machine and it`s version is equal or higther than 1.22.2
+```
+go version
+```
+* Clone repo
+```
+git clone https://github.com/Razzle131/ComputerClub.git
+```
+* Run code with example data
+```
+go run main.go test_file.txt
+```
